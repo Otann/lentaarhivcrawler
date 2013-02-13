@@ -93,7 +93,7 @@ object Importer extends Logging {
       localUrls ::= (example, persistPerson(example))
     }
 
-    writeToFile("result/inex.html", indexTemplate(localUrls))
+    writeToFile("results/inex.html", indexTemplate(localUrls))
 
     logger.info("Done!")
   }
