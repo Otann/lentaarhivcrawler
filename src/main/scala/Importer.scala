@@ -11,10 +11,26 @@ object Importer extends Logging {
   def personUrl(link: String) = url("http://web.archive.org%s" format link)
 
   val PersonPattern  = """/web/\d+/http://lenta.ru/lib/(\d+)/""".r
-  val NamePattern    = """(?s).*<h1>(.+)</h1>.*""".r
+  val NamePattern    = """(?s).*<[hH]1>(.+)</[Hh]1>.*""".r
   val ArticlePattern = """(?s).*<td.*id="article">(.+)</td>.*""".r
 
-  val template =
+  val http = Http.configure(_
+    .setFollowRedirects(true)
+    .setMaximumNumberOfRedirects(1000)
+  )
+
+
+  // Helpers
+  def fetch(remote: RequestBuilder) = http(remote OK as.String)()
+
+  def writeToFile(name: String, data: String) {
+    val fos = new OutputStreamWriter(new FileOutputStream(name), Charset.forName("UTF-8"))
+    fos.write(data)
+    fos.close()
+  }
+
+  // Data manipulation
+  def template(data: String) =
     """
       |<!DOCTYPE html>
       |<html lang="en">
@@ -33,39 +49,29 @@ object Importer extends Logging {
       |    </div>
       |  </body>
       |</html>
-    """.stripMargin
+    """.stripMargin.replace("##content##", data)
 
-  val http = Http.configure(_
-    .setFollowRedirects(true)
-    .setMaximumNumberOfRedirects(1000)
+  def indexTemplate(urls: List[(String, String)]) = template(urls
+    .map({ case (a, b) => """<li><a href="%s">%s</a></li>""" format (a, b)})
+    .mkString("<ul>\n", "\n", "\n</ul>")
   )
 
-  // Helpers
-  def fetch(remote: RequestBuilder) = http(remote OK as.String)()
-
-  def writeToFile(name: String, data: String) {
-    val utf8 = Charset.forName("UTF-8")
-    val fos = new OutputStreamWriter(new FileOutputStream(name), utf8)
-    fos.write("<meta charset=\"UTF-8\">")
-    fos.write(data)
-    fos.close()
-  }
-
-  def persistPerson(link: String) {
+  def persistPerson(link: String): String = {
     try {
       val data = fetch(personUrl(link))
       val ArticlePattern(article) = data
 
       val name = article match {
         case NamePattern(s) => s
-        case _ => { val PersonPattern(id) = link; id }
+        case _ => throw new Exception("Unable to get name")
       }
 
       val fixed = article.replaceAll("/web/", "http://web.archive.org/web/")
 
-      writeToFile("results/%s.html" format name, template.replace("##content##", fixed))
+      writeToFile("results/%s.html" format name, template(fixed))
+      name
     } catch {
-      case _: Throwable => logger.debug("Exception while doing %s" format link)
+      case t: Exception => { logger.debug("Exception %s while doing %s" format (t, link)); link }
     }
   }
 
@@ -76,15 +82,18 @@ object Importer extends Logging {
 
     val allPersonsData = fetch(allPersonsUrl)
     val allPersons = (PersonPattern findAllIn allPersonsData).toList
+    var localUrls = List[(String, String)]()
     var index = 0
 
-    //    persistPerson("/web/20130117211042/http://lenta.ru/lib/14180652/")
+//    persistPerson("/web/20130117211042/http://lenta.ru/lib/14180652/")
 
     for (example <- allPersons) {
       index += 1
       logger.info("%s of %s" format (index, allPersons.size))
-      persistPerson(example)
+      localUrls ::= (example, persistPerson(example))
     }
+
+    writeToFile("result/inex.html", indexTemplate(localUrls))
 
     logger.info("Done!")
   }
