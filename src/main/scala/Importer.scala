@@ -66,7 +66,9 @@ object Importer extends Logging {
         case _ => throw new Exception("Unable to get name")
       }
 
-      val fixed = article.replaceAll("/web/", "http://web.archive.org/web/")
+      val fixed = article
+        .replaceAll("""href="[^#]*#""", """href="#""")         // clear anchors
+        .replaceAll("/web/", "http://web.archive.org/web/")    // complete root urls
 
       writeToFile("results/%s.html" format name, template(fixed))
       name
